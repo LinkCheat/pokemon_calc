@@ -24,6 +24,7 @@ class Field:
         self.player_action_index = None
         self.opponent_action_index = None
         self.turn_number = 0
+        self.last_move_used = None
 
         self.weather = None
         self.terrain = None
@@ -82,7 +83,9 @@ class Field:
 
     def initialize_battle(self):
         """Recalculate every team member's stats and restore each one's HP."""
+        self.last_move_used = None
         for pokemon in self._player_team + self._opponent_team:
+            pokemon.restore_burn_up_type()
             pokemon.restore_temporary_ability()
             pokemon.calculateStats()
             pokemon.current_hp = pokemon.max_hp
@@ -94,16 +97,22 @@ class Field:
             pokemon.last_move_failed = False
             pokemon.protected_this_turn = False
             pokemon.protection_streak = 0
+            pokemon.shell_trap_armed = False
+            pokemon.shell_trap_triggered = False
             pokemon.locked_move = None
             pokemon.locked_move_turns_remaining = 0
             pokemon.confusion_turns_remaining = 0
             pokemon.leech_seeded = False
             pokemon.ingrain_active = False
             pokemon.snap_trap_turns_remaining = 0
+            pokemon.fire_spin_turns_remaining = 0
+            pokemon.magma_storm_turns_remaining = 0
+            pokemon.magma_storm_trapped_by = None
             pokemon.syrupy_turns_remaining = 0
             pokemon.syrupy_skip_next_tick = False
             pokemon.flinched = False
             pokemon.has_acted_this_turn = False
+            pokemon.stat_boosted_this_turn = False
 
         self._activate_entry_ability("player")
         self._activate_entry_ability("opponent")
@@ -131,7 +140,11 @@ class Field:
                 raise ValueError("Le Pokémon est bloqué sur une capacité et ne peut pas se retirer.")
             if (
                 outgoing_pokemon.current_hp > 0
-                and outgoing_pokemon.snap_trap_turns_remaining > 0
+                and (
+                    outgoing_pokemon.snap_trap_turns_remaining > 0
+                    or outgoing_pokemon.fire_spin_turns_remaining > 0
+                    or outgoing_pokemon.magma_storm_turns_remaining > 0
+                )
             ):
                 raise ValueError("Le Pokémon actif est piégé et ne peut pas être retiré.")
             if (
@@ -143,6 +156,9 @@ class Field:
             outgoing_pokemon.leech_seeded = False
             outgoing_pokemon.ingrain_active = False
             outgoing_pokemon.snap_trap_turns_remaining = 0
+            outgoing_pokemon.fire_spin_turns_remaining = 0
+            outgoing_pokemon.magma_storm_turns_remaining = 0
+            outgoing_pokemon.magma_storm_trapped_by = None
             outgoing_pokemon.syrupy_turns_remaining = 0
             outgoing_pokemon.syrupy_skip_next_tick = False
             outgoing_pokemon.charging_move = None
@@ -150,9 +166,21 @@ class Field:
             outgoing_pokemon.last_move_failed = False
             outgoing_pokemon.protected_this_turn = False
             outgoing_pokemon.protection_streak = 0
+            outgoing_pokemon.shell_trap_armed = False
+            outgoing_pokemon.shell_trap_triggered = False
             outgoing_pokemon.locked_move = None
             outgoing_pokemon.locked_move_turns_remaining = 0
             outgoing_pokemon.confusion_turns_remaining = 0
+            outgoing_pokemon.restore_burn_up_type()
+            opposing_pokemon = self._get_active_pokemon(
+                "opponent" if side == "player" else "player"
+            )
+            if (
+                opposing_pokemon is not None
+                and opposing_pokemon.magma_storm_trapped_by is outgoing_pokemon
+            ):
+                opposing_pokemon.magma_storm_turns_remaining = 0
+                opposing_pokemon.magma_storm_trapped_by = None
             if outgoing_pokemon.forest_cursed:
                 outgoing_pokemon.type.remove(Type.GRASS)
                 outgoing_pokemon.forest_cursed = False
@@ -260,7 +288,11 @@ class Field:
                 raise ValueError("Le Pokémon est bloqué sur une capacité et ne peut pas se retirer.")
             if (
                 active_pokemon.current_hp > 0
-                and active_pokemon.snap_trap_turns_remaining > 0
+                and (
+                    active_pokemon.snap_trap_turns_remaining > 0
+                    or active_pokemon.fire_spin_turns_remaining > 0
+                    or active_pokemon.magma_storm_turns_remaining > 0
+                )
             ):
                 raise ValueError("Le Pokémon actif est piégé et ne peut pas être retiré.")
             if (
@@ -320,14 +352,21 @@ class Field:
 
     def resolve_turn(self, player_action_index, opponent_action_index):
         """Resolve both sides' actions in order, then advance the turn counter."""
+        self.last_move_used = None
         for pokemon in self._player_team + self._opponent_team:
             pokemon.has_acted_this_turn = False
             pokemon.protected_this_turn = False
+            pokemon.shell_trap_armed = False
+            pokemon.shell_trap_triggered = False
+            pokemon.stat_boosted_this_turn = False
 
         resolved_actions = self.determine_attack_order(
             player_action_index,
             opponent_action_index,
         )
+        for action in resolved_actions:
+            if action["type"] == "move" and action["move"].is_counter_trap():
+                action["pokemon"].shell_trap_armed = True
         turn_results = []
         for action in resolved_actions:
             if not self.has_living_pokemon("player") or not self.has_living_pokemon("opponent"):
@@ -335,6 +374,7 @@ class Field:
 
             if action["type"] == "switch":
                 self.switch_pokemon(action["side"], action["team_index"])
+                self.last_move_used = None
                 result = None
             elif action["pokemon"].current_hp <= 0:
                 result = {
@@ -365,14 +405,98 @@ class Field:
         for pokemon in self._player_team + self._opponent_team:
             pokemon.flinched = False
             pokemon.has_acted_this_turn = False
+            pokemon.shell_trap_armed = False
+            pokemon.shell_trap_triggered = False
         if len(turn_results) == 2:
             self.turn_number += 1
             turn_results.extend(self._apply_leech_seed())
             turn_results.extend(self._apply_snap_trap())
+            turn_results.extend(self._apply_fire_spin())
+            turn_results.extend(self._apply_magma_storm())
             turn_results.extend(self._apply_syrup_bomb())
             turn_results.extend(self._apply_ingrain())
             turn_results.extend(self._apply_grassy_terrain())
+        for pokemon in self._player_team + self._opponent_team:
+            pokemon.stat_boosted_this_turn = False
+        self.last_move_used = None
         return turn_results
+
+    def _apply_fire_spin(self):
+        """Damage and count down active Fire Spin traps at turn end."""
+        residual_results = []
+        for side in ("player", "opponent"):
+            trapped_pokemon = self._get_active_pokemon(side)
+            if (
+                trapped_pokemon is None
+                or trapped_pokemon.current_hp <= 0
+                or trapped_pokemon.fire_spin_turns_remaining <= 0
+            ):
+                continue
+
+            damage = min(
+                max(1, trapped_pokemon.max_hp // 8),
+                trapped_pokemon.current_hp,
+            )
+            trapped_pokemon.current_hp -= damage
+            trapped_pokemon.fire_spin_turns_remaining -= 1
+            residual_results.append({
+                "action": {
+                    "type": "fire_spin_residual",
+                    "side": side,
+                    "pokemon": trapped_pokemon,
+                },
+                "result": {
+                    "damage": damage,
+                    "turns_remaining": trapped_pokemon.fire_spin_turns_remaining,
+                },
+            })
+        return residual_results
+
+    def _apply_magma_storm(self):
+        """Damage and count down active Magma Storm traps at turn end."""
+        residual_results = []
+        for side in ("player", "opponent"):
+            trapped_pokemon = self._get_active_pokemon(side)
+            if (
+                trapped_pokemon is None
+                or trapped_pokemon.magma_storm_turns_remaining <= 0
+            ):
+                continue
+
+            trap_source = trapped_pokemon.magma_storm_trapped_by
+            source_side = "opponent" if side == "player" else "player"
+            if (
+                trapped_pokemon.current_hp <= 0
+                or trap_source is None
+                or trap_source.current_hp <= 0
+                or self._get_active_pokemon(source_side) is not trap_source
+            ):
+                trapped_pokemon.magma_storm_turns_remaining = 0
+                trapped_pokemon.magma_storm_trapped_by = None
+                continue
+
+            damage = min(
+                max(1, trapped_pokemon.max_hp // 8),
+                trapped_pokemon.current_hp,
+            )
+            trapped_pokemon.current_hp -= damage
+            trapped_pokemon.magma_storm_turns_remaining -= 1
+            turns_remaining = trapped_pokemon.magma_storm_turns_remaining
+            if turns_remaining == 0:
+                trapped_pokemon.magma_storm_trapped_by = None
+
+            residual_results.append({
+                "action": {
+                    "type": "magma_storm_residual",
+                    "side": side,
+                    "pokemon": trapped_pokemon,
+                },
+                "result": {
+                    "damage": damage,
+                    "turns_remaining": turns_remaining,
+                },
+            })
+        return residual_results
 
     def _apply_syrup_bomb(self):
         """Lower active targets' Speed and count down Syrup Bomb effects."""
@@ -726,7 +850,18 @@ class Field:
     def resolve_move(self, side, move):
         """Resolve a move and remember whether it failed for the user's next move."""
         attacker = self._get_active_pokemon(side)
+        stat_modifiers_before = {
+            pokemon: pokemon.stat_modifiers.copy()
+            for pokemon in self._player_team + self._opponent_team
+        }
         result = self._resolve_move(side, move)
+        self.last_move_used = None if result.get("unable_to_act") else move.name
+        for pokemon, previous_modifiers in stat_modifiers_before.items():
+            if any(
+                stage > previous_modifiers[stat]
+                for stat, stage in pokemon.stat_modifiers.items()
+            ):
+                pokemon.stat_boosted_this_turn = True
         if attacker is not None:
             attacker.last_move_failed = self._did_move_fail(result)
         return result
@@ -789,7 +924,10 @@ class Field:
                 "unable_to_act": True,
                 "flinched": True,
             }
-        if attacker.status_condition is STATUS_CONDITION.SLEEP:
+        if (
+            attacker.status_condition is STATUS_CONDITION.SLEEP
+            and not move.can_use_while_asleep()
+        ):
             if attacker.ability is Ability.INSOMNIA:
                 attacker.status_condition = None
                 attacker.sleep_turns_remaining = 0
@@ -855,6 +993,16 @@ class Field:
         elif not is_releasing_lock:
             move.consume_pp()
 
+        if move.fails_before_damage(attacker, defender, self):
+            return {
+                "hit": False,
+                "immune": False,
+                "damage": 0,
+                "effect": move.effect(attacker, defender),
+                "hits": 0,
+                "failed": True,
+            }
+
         if is_protection_move:
             success_chance = 1 / (2 ** attacker.protection_streak)
             if success_chance < 1 and random.random() >= success_chance:
@@ -889,11 +1037,12 @@ class Field:
                     attacker.current_hp,
                 )
                 attacker.current_hp -= contact_recoil
+            effect = move.apply_effect_on_failed_use(attacker, defender)
             return {
                 "hit": False,
                 "immune": False,
                 "damage": 0,
-                "effect": None,
+                "effect": effect,
                 "hits": 0,
                 "blocked_by_protection": True,
                 "contact_recoil": contact_recoil,
@@ -920,14 +1069,28 @@ class Field:
                 attacker.locked_move_turns_remaining = lock_turn_count
 
         if not self.attack_hits(attacker, defender, move):
-            return {"hit": False, "immune": False, "damage": 0, "effect": None, "hits": 0}
+            effect = move.apply_effect_on_failed_use(attacker, defender)
+            return {
+                "hit": False,
+                "immune": False,
+                "damage": 0,
+                "effect": effect,
+                "hits": 0,
+            }
 
         if (
             not move.targets_user_team()
             and not move.applies_field_effect()
             and self.is_immune_to_move(move, defender, attacker)
         ):
-            return {"hit": True, "immune": True, "damage": 0, "effect": None, "hits": 0}
+            effect = move.apply_effect_on_failed_use(attacker, defender)
+            return {
+                "hit": True,
+                "immune": True,
+                "damage": 0,
+                "effect": effect,
+                "hits": 0,
+            }
 
         attacker.calculateStats()
         defender.calculateStats()
@@ -942,6 +1105,13 @@ class Field:
             damage_dealt += min(hit_damage, defender.current_hp)
             defender.current_hp = max(0, defender.current_hp - hit_damage)
             hits += 1
+
+        if (
+            hits > 0
+            and move.category is MoveCategory.PHYSICAL
+            and defender.shell_trap_armed
+        ):
+            defender.shell_trap_triggered = True
 
         if move.applies_field_effect():
             effect = move.apply_field_effect(attacker, self)

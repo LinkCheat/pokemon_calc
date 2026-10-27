@@ -71,6 +71,10 @@ class Moves(ABC):
         """Apply this move's effect with field context when required."""
         return self.apply_effect(user, target, damage_dealt)
 
+    def apply_effect_on_failed_use(self, user, target):
+        """Apply move effects that still occur when an attack fails to hit."""
+        return None
+
     def targets_user_team(self):
         """Return whether this move applies its effect to the user's team."""
         return False
@@ -129,6 +133,18 @@ class Moves(ABC):
 
     def is_protection_move(self):
         """Return whether this move protects its user for the current turn."""
+        return False
+
+    def is_counter_trap(self):
+        """Return whether this move sets a counter trap at the start of the turn."""
+        return False
+
+    def can_use_while_asleep(self):
+        """Return whether this move can be used while its user is asleep."""
+        return False
+
+    def fails_before_damage(self, user, target, field):
+        """Return whether this move fails before attempting to deal damage."""
         return False
 
     def get_lock_turn_count(self, user, target):
