@@ -135,6 +135,18 @@ class Moves(ABC):
         """Return whether this move protects its user for the current turn."""
         return False
 
+    def get_protection_success_chance(self, protection_streak):
+        """Return the success chance for a consecutive protection attempt."""
+        return 1 / (2 ** protection_streak)
+
+    def apply_protection_contact_effect(self, attacker, protected_user, move):
+        """Apply any effect this protection has against a direct attack."""
+        return None
+
+    def prevents_contact_recoil_on_protection(self):
+        """Return whether this protection replaces contact recoil."""
+        return False
+
     def is_counter_trap(self):
         """Return whether this move sets a counter trap at the start of the turn."""
         return False

@@ -44,6 +44,7 @@ from .fire.special import (
     ShellTrap,
     TorchSong,
 )
+from .fire.status import BurningBulwark, SunnyDay, WillOWisp
 from .grass.physical import (
     BranchPoke,
     BulletSeed,
@@ -117,7 +118,8 @@ __all__ = [
     "FirePledge", "FireSpin", "FieryDance", "FlameBurst", "Flamethrower",
     "FusionFlare", "HeatWave", "Incinerate", "Inferno", "LavaPlume",
     "MagmaStorm", "MindBlown", "MysticalFire", "Overheat", "SearingShot",
-    "ShellTrap", "TorchSong", "Spore", "BulletSeed", "TropKick",
+    "ShellTrap", "TorchSong", "BurningBulwark", "SunnyDay", "WillOWisp",
+    "Spore", "BulletSeed", "TropKick",
     "SeedBomb", "Trailblaze",
     "HornLeech", "LeechSeed", "SappySeed", "Leafage", "GravApple",
     "VineWhip", "GrassyGlide", "LeafBlade", "SolarBlade", "FlowerTrick",

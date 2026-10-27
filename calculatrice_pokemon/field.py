@@ -27,6 +27,7 @@ class Field:
         self.last_move_used = None
 
         self.weather = None
+        self.weather_turns_remaining = 0
         self.terrain = None
         self.terrain_turns_remaining = 0
         self.gravity_active = False
@@ -96,6 +97,7 @@ class Field:
             pokemon.recharging_move = None
             pokemon.last_move_failed = False
             pokemon.protected_this_turn = False
+            pokemon.protected_by_move = None
             pokemon.protection_streak = 0
             pokemon.shell_trap_armed = False
             pokemon.shell_trap_triggered = False
@@ -165,6 +167,7 @@ class Field:
             outgoing_pokemon.recharging_move = None
             outgoing_pokemon.last_move_failed = False
             outgoing_pokemon.protected_this_turn = False
+            outgoing_pokemon.protected_by_move = None
             outgoing_pokemon.protection_streak = 0
             outgoing_pokemon.shell_trap_armed = False
             outgoing_pokemon.shell_trap_triggered = False
@@ -356,6 +359,7 @@ class Field:
         for pokemon in self._player_team + self._opponent_team:
             pokemon.has_acted_this_turn = False
             pokemon.protected_this_turn = False
+            pokemon.protected_by_move = None
             pokemon.shell_trap_armed = False
             pokemon.shell_trap_triggered = False
             pokemon.stat_boosted_this_turn = False
@@ -405,6 +409,7 @@ class Field:
         for pokemon in self._player_team + self._opponent_team:
             pokemon.flinched = False
             pokemon.has_acted_this_turn = False
+            pokemon.protected_by_move = None
             pokemon.shell_trap_armed = False
             pokemon.shell_trap_triggered = False
         if len(turn_results) == 2:
@@ -416,6 +421,7 @@ class Field:
             turn_results.extend(self._apply_syrup_bomb())
             turn_results.extend(self._apply_ingrain())
             turn_results.extend(self._apply_grassy_terrain())
+            turn_results.extend(self._apply_weather())
         for pokemon in self._player_team + self._opponent_team:
             pokemon.stat_boosted_this_turn = False
         self.last_move_used = None
@@ -607,6 +613,26 @@ class Field:
             self.terrain_turns_remaining = 0
             self.terrain = None
         return residual_results
+
+    def _apply_weather(self):
+        """Count down temporary weather and clear it when it expires."""
+        if self.weather is None or self.weather_turns_remaining <= 0:
+            return []
+
+        weather = self.weather
+        self.weather_turns_remaining -= 1
+        ended = self.weather_turns_remaining == 0
+        if ended:
+            self.weather = None
+
+        return [{
+            "action": {"type": "weather_residual"},
+            "result": {
+                "weather": weather,
+                "turns_remaining": self.weather_turns_remaining,
+                "ended": ended,
+            },
+        }]
 
     def _advance_move_lock(self, pokemon):
         """Count a completed locked turn and apply its end-of-lock effect."""
@@ -810,6 +836,12 @@ class Field:
             and move.get_type(attacker, defender, self) is Type.GRASS
         ):
             modifiers *= 1.3
+        move_type = move.get_type(attacker, defender, self)
+        if self.weather is Weather.SUNNY:
+            if move_type is Type.FIRE:
+                modifiers *= 1.5
+            elif move_type is Type.WATER:
+                modifiers *= 0.5
         return modifiers
 
     def _is_grounded(self, pokemon):
@@ -1004,7 +1036,9 @@ class Field:
             }
 
         if is_protection_move:
-            success_chance = 1 / (2 ** attacker.protection_streak)
+            success_chance = move.get_protection_success_chance(
+                attacker.protection_streak
+            )
             if success_chance < 1 and random.random() >= success_chance:
                 attacker.protection_streak = 0
                 return {
@@ -1017,6 +1051,7 @@ class Field:
                 }
             attacker.protection_streak += 1
             attacker.protected_this_turn = True
+            attacker.protected_by_move = move
             effect = move.effect(attacker, defender)
             if effect is None:
                 effect = {"condition": "protection", "applied": True}
@@ -1031,13 +1066,27 @@ class Field:
 
         if defender.protected_this_turn:
             contact_recoil = 0
-            if move.contact:
-                contact_recoil = min(
-                    max(1, attacker.max_hp // 8),
-                    attacker.current_hp,
+            protection_effect = None
+            protection_move = defender.protected_by_move
+            if move.contact and protection_move is not None:
+                protection_effect = protection_move.apply_protection_contact_effect(
+                    attacker,
+                    defender,
+                    move,
                 )
-                attacker.current_hp -= contact_recoil
+            if move.contact:
+                if (
+                    protection_move is None
+                    or not protection_move.prevents_contact_recoil_on_protection()
+                ):
+                    contact_recoil = min(
+                        max(1, attacker.max_hp // 8),
+                        attacker.current_hp,
+                    )
+                    attacker.current_hp -= contact_recoil
             effect = move.apply_effect_on_failed_use(attacker, defender)
+            if protection_effect is not None:
+                effect = protection_effect
             return {
                 "hit": False,
                 "immune": False,

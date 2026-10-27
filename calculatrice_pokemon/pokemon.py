@@ -65,6 +65,7 @@ class Pokemon:
         self.recharging_move = None
         self.last_move_failed = False
         self.protected_this_turn = False
+        self.protected_by_move = None
         self.protection_streak = 0
         self.shell_trap_armed = False
         self.shell_trap_triggered = False
