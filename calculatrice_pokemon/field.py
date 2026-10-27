@@ -91,6 +91,7 @@ class Field:
                 pokemon.forest_cursed = False
             pokemon.charging_move = None
             pokemon.recharging_move = None
+            pokemon.last_move_failed = False
             pokemon.protected_this_turn = False
             pokemon.protection_streak = 0
             pokemon.locked_move = None
@@ -146,6 +147,7 @@ class Field:
             outgoing_pokemon.syrupy_skip_next_tick = False
             outgoing_pokemon.charging_move = None
             outgoing_pokemon.recharging_move = None
+            outgoing_pokemon.last_move_failed = False
             outgoing_pokemon.protected_this_turn = False
             outgoing_pokemon.protection_streak = 0
             outgoing_pokemon.locked_move = None
@@ -609,7 +611,9 @@ class Field:
         return effectiveness
 
     def is_immune_to_move(self, move, defender, attacker=None):
-        """Return whether type matchup or powder immunity prevents a move."""
+        """Return whether a move is blocked by ability or type immunity."""
+        if move.bullet and defender.ability is Ability.BULLET_PROOF:
+            return True
         if move.powder and Type.GRASS in defender.type:
             return True
         if move.electric_type_immune and Type.ELECTRIC in defender.type:
@@ -720,6 +724,28 @@ class Field:
         return move.calculate_damage(attacker, defender, standard_damage)
 
     def resolve_move(self, side, move):
+        """Resolve a move and remember whether it failed for the user's next move."""
+        attacker = self._get_active_pokemon(side)
+        result = self._resolve_move(side, move)
+        if attacker is not None:
+            attacker.last_move_failed = self._did_move_fail(result)
+        return result
+
+    @staticmethod
+    def _did_move_fail(result):
+        """Return whether a move failed rather than successfully resolving."""
+        if result.get("charging"):
+            return False
+        return bool(
+            result.get("hit") is False
+            or result.get("immune")
+            or result.get("blocked_by_protection")
+            or result.get("protection_failed")
+            or result.get("failed")
+            or result.get("unable_to_act")
+        )
+
+    def _resolve_move(self, side, move):
         """Spend PP, resolve accuracy and immunity, then apply damage and effects.
 
         Returns a result dictionary with ``hit``, ``immune``, ``damage``, and

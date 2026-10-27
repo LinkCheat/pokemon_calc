@@ -1,4 +1,22 @@
 from .normal.physical import Tackle
+from .fire.physical import (
+    BitterBlade,
+    BlazeKick,
+    BlazingTorque,
+    FireFang,
+    FireLash,
+    FirePunch,
+    FlameCharge,
+    FlameWheel,
+    FlareBlitz,
+    HeatCrash,
+    PyroBall,
+    RagingFury,
+    SacredFire,
+    SizzlySlide,
+    TemperFlare,
+    VCreate,
+)
 from .grass.physical import (
     BranchPoke,
     BulletSeed,
@@ -64,7 +82,11 @@ from .grass.status import (
 )
 
 __all__ = [
-    "Tackle", "Spore", "BulletSeed", "TropKick", "SeedBomb", "Trailblaze",
+    "Tackle", "BitterBlade", "BlazeKick", "BlazingTorque", "FireFang",
+    "FireLash", "FirePunch", "FlameCharge", "FlameWheel", "FlareBlitz",
+    "HeatCrash", "PyroBall", "RagingFury", "SacredFire", "SizzlySlide",
+    "TemperFlare", "VCreate", "Spore", "BulletSeed", "TropKick",
+    "SeedBomb", "Trailblaze",
     "HornLeech", "LeechSeed", "SappySeed", "Leafage", "GravApple",
     "VineWhip", "GrassyGlide", "LeafBlade", "SolarBlade", "FlowerTrick",
     "WoodHammer", "IvyCudgel", "PowerWhip", "NeedleArm", "DrumBeating",

@@ -32,6 +32,7 @@ class Moves(ABC):
         grass_type_immune: bool = False,
         electric_type_immune: bool = False,
         sound: bool = False,
+        bullet: bool = False,
     ):
         """Initialize move metadata and set current PP to the maximum PP.
 
@@ -55,6 +56,7 @@ class Moves(ABC):
         self.grass_type_immune = grass_type_immune
         self.electric_type_immune = electric_type_immune
         self.sound = sound
+        self.bullet = bullet
 
     @abstractmethod
     def effect(self, user, target):
