@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+/calculatrice_pokemon/IA/ai_decisions.log
 
 # C extensions
 *.so
