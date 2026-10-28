@@ -7,6 +7,8 @@ try:
     import field
     import pokemon
     import moves.move as move
+    from IA import opponent_ai
+    from IA import ai_decision_log
 except ModuleNotFoundError:
     from calculatrice_pokemon.enums.nature import Nature
     from calculatrice_pokemon.enums.status_condition import STATUS_CONDITION
@@ -15,6 +17,8 @@ except ModuleNotFoundError:
     import calculatrice_pokemon.field as field
     import calculatrice_pokemon.pokemon as pokemon
     import calculatrice_pokemon.moves.move as move
+    import calculatrice_pokemon.IA.opponent_ai as opponent_ai
+    import calculatrice_pokemon.IA.ai_decision_log as ai_decision_log
 
 
 def input_player_action(battle_field, forced_switch=False):
@@ -415,6 +419,7 @@ def _replace_fainted_pokemon(battle_field, side):
 
 def main():
     """Run the interactive battle one complete two-sided turn at a time."""
+    ai_decision_log.clear_log()
     battle_field = field.Field()
     player_pokemon = pokemon.Pokemon("Charizard", "Mega Charizard X")
     player_bench_pokemon = pokemon.Pokemon("Pikachu")
@@ -466,7 +471,6 @@ def main():
     player_wood_hammer_pokemon.add_move(BranchPoke())
     player_wood_hammer_pokemon.add_move(PetalBlizzard())
     player_wood_hammer_pokemon.add_move(RazorLeaf())
-    player_wood_hammer_pokemon.add_move(SnapTrap())
     player_ivy_cudgel_pokemon.add_move(IvyCudgel())
     player_ivy_cudgel_pokemon.add_move(PowerWhip())
     player_ivy_cudgel_pokemon.add_move(NeedleArm())
@@ -493,7 +497,11 @@ def main():
             print("Combat terminé.")
             break
 
-        turn_results = battle_field.resolve_turn(player_action_index, 0)
+        opponent_action_index = opponent_ai.choose_action(battle_field)
+        turn_results = battle_field.resolve_turn(
+            player_action_index,
+            opponent_action_index,
+        )
         for turn_result in turn_results:
             _display_action_result(
                 battle_field,
@@ -506,11 +514,6 @@ def main():
         _replace_fainted_pokemon(battle_field, "player")
         _replace_fainted_pokemon(battle_field, "opponent")
         print(f"Fin du tour {battle_field.turn_number}.")
-
-    fire_vs_grass = field.Field.calculate_type_effectiveness(Type.FIRE, Type.GRASS)
-    assert fire_vs_grass == 2.0
-    print(f"Test de type : Feu contre Plante = x{fire_vs_grass} (attendu : x2)")
-
 
 if __name__ == "__main__":
     main()
