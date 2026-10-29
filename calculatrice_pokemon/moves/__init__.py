@@ -1,4 +1,24 @@
 from .normal.physical import Tackle
+from .electric.physical import (
+    BoltStrike,
+    Nuzzle,
+    Spark,
+    ThunderFang,
+    ThunderPunch,
+    VoltTackle,
+    WildCharge,
+)
+from .electric.special import (
+    ChargeBeam,
+    Discharge,
+    ElectroBall,
+    ParabolicCharge,
+    ShockWave,
+    Thunder,
+    ThunderShock,
+    Thunderbolt,
+    ZapCannon,
+)
 from .fire.physical import (
     BitterBlade,
     BlazeKick,
@@ -110,7 +130,11 @@ from .grass.status import (
 )
 
 __all__ = [
-    "Tackle", "BitterBlade", "BlazeKick", "BlazingTorque", "FireFang",
+    "Tackle", "BoltStrike", "Nuzzle", "Spark", "ThunderFang",
+    "ThunderPunch", "VoltTackle", "WildCharge", "BitterBlade", "BlazeKick",
+    "BlazingTorque", "FireFang",
+    "Discharge", "ElectroBall", "ThunderShock", "ZapCannon", "Thunder",
+    "ShockWave", "ParabolicCharge", "ChargeBeam", "Thunderbolt",
     "FireLash", "FirePunch", "FlameCharge", "FlameWheel", "FlareBlitz",
     "HeatCrash", "PyroBall", "RagingFury", "SacredFire", "SizzlySlide",
     "TemperFlare", "VCreate", "ArmorCannon", "BlueFlare", "BlastBurn",

@@ -736,12 +736,13 @@ class Field:
 
     def attack_hits(self, attacker, defender, move):
         """Roll the move's accuracy against the combatants' accuracy stages."""
-        if move.accuracy >= 101:
+        accuracy = move.get_accuracy(attacker, defender, self)
+        if accuracy >= 101:
             return True
 
         accuracy_multiplier = self._stage_multiplier(attacker.stat_modifiers["accuracy"])
         evasion_multiplier = self._stage_multiplier(defender.stat_modifiers["evasion"])
-        hit_chance = move.accuracy * accuracy_multiplier / evasion_multiplier
+        hit_chance = accuracy * accuracy_multiplier / evasion_multiplier
         if hit_chance >= 100:
             return True
         return random.random() * 100 < max(0, hit_chance)
