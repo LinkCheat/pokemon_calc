@@ -1,6 +1,7 @@
 from .charge_beam import ChargeBeam
 from .discharge import Discharge
 from .electro_ball import ElectroBall
+from .electroweb import Electroweb
 from .parabolic_charge import ParabolicCharge
 from .shock_wave import ShockWave
 from .thunder import Thunder
@@ -12,6 +13,7 @@ __all__ = [
 	"ChargeBeam",
 	"Discharge",
 	"ElectroBall",
+	"Electroweb",
 	"ParabolicCharge",
 	"ShockWave",
 	"Thunder",

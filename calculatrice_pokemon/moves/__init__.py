@@ -19,6 +19,8 @@ from .electric.special import (
     Thunderbolt,
     ZapCannon,
 )
+from .electric.special import Electroweb
+from .electric.status import Charge, ElectricTerrain, Electrify, MagnetRise, ThunderWave
 from .fire.physical import (
     BitterBlade,
     BlazeKick,
@@ -132,6 +134,8 @@ from .grass.status import (
 __all__ = [
     "Tackle", "BoltStrike", "Nuzzle", "Spark", "ThunderFang",
     "ThunderPunch", "VoltTackle", "WildCharge", "BitterBlade", "BlazeKick",
+    "Electroweb", "ThunderWave", "ElectricTerrain", "Charge", "Electrify",
+    "MagnetRise",
     "BlazingTorque", "FireFang",
     "Discharge", "ElectroBall", "ThunderShock", "ZapCannon", "Thunder",
     "ShockWave", "ParabolicCharge", "ChargeBeam", "Thunderbolt",
