@@ -66,6 +66,9 @@ _MINOR_STATUS_EFFECTS = (
     ("fire_spin_turns_remaining", False),
     ("magma_storm_turns_remaining", False),
     ("syrupy_turns_remaining", False),
+    ("electric_charge_active", True),
+    ("electrified", False),
+    ("magnet_rise_turns_remaining", True),
 )
 
 
