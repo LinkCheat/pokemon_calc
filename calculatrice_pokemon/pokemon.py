@@ -24,6 +24,9 @@ class Pokemon:
         self.type = data["type"]
         self.burn_up_original_types = None
         self.forest_cursed = False
+        self.electric_charge_active = False
+        self.electrified = False
+        self.magnet_rise_turns_remaining = 0
         self.base_stats = data["stats"]
         self.weight = data["weight"]
 

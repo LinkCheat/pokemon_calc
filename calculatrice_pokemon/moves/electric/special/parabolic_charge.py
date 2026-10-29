@@ -1,0 +1,35 @@
+try:
+    from enums.move_category import MoveCategory
+    from enums.type import Type
+    from moves.move import Moves
+except ModuleNotFoundError:
+    from calculatrice_pokemon.enums.move_category import MoveCategory
+    from calculatrice_pokemon.enums.type import Type
+    from calculatrice_pokemon.moves.move import Moves
+
+
+class ParabolicCharge(Moves):
+    def __init__(self):
+        """Create the Electric-type special move Parabolic Charge."""
+        super().__init__(
+            name="Parabolic Charge",
+            move_type=Type.ELECTRIC,
+            category=MoveCategory.SPECIAL,
+            power=65,
+            accuracy=100,
+            max_pp=20,
+            contact=False,
+        )
+
+    def effect(self, user, target):
+        """Apply healing using the damage context supplied by the field."""
+        return None
+
+    def apply_effect(self, user, target, damage_dealt):
+        """Restore half the actual damage dealt, capped at the user's max HP."""
+        healing = min(damage_dealt // 2, user.max_hp - user.current_hp)
+        user.current_hp += healing
+        return {
+            "name": self.name,
+            "healed": healing,
+        }

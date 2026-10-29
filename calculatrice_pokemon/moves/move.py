@@ -6,6 +6,7 @@ try:
     from enums.type import Type
     from enums.move_category import MoveCategory
     from enums.status_condition import STATUS_CONDITION
+    from enums.terrain import Terrain
 except ModuleNotFoundError:
     from calculatrice_pokemon.enums.ability import Ability
     from calculatrice_pokemon.enums.type import Type
@@ -79,6 +80,10 @@ class Moves(ABC):
         """Return whether this move applies its effect to the user's team."""
         return False
 
+    def targets_user(self):
+        """Return whether this move targets its own user rather than its foe."""
+        return False
+
     def apply_team_effect(self, user, team):
         """Apply this move's effect to the user's team when supported."""
         raise NotImplementedError(
@@ -110,6 +115,10 @@ class Moves(ABC):
     def get_power(self, user, target, field=None):
         """Return this move's base power; subclasses can make it situational."""
         return self.power
+
+    def get_accuracy(self, user, target, field=None):
+        """Return this move's accuracy; subclasses can make it situational."""
+        return self.accuracy
 
     def get_type(self, user, target=None, field=None):
         """Return this move's type; subclasses can make it situational."""
@@ -175,8 +184,21 @@ class Moves(ABC):
         """Return the calculated damage unchanged unless a subclass overrides it."""
         return standard_damage
 
-    def inflict_sleep(self, target):
+    def inflict_sleep(self, target, field=None):
         """Put an unstatused target to sleep for one to three turns."""
+        if field is None:
+            field = getattr(target, "_battle_field", None)
+        if (
+            field is not None
+            and field.terrain is Terrain.ELECTRIC
+            and field._is_grounded(target)
+        ):
+            return {
+                "name": self.name,
+                "status": None,
+                "applied": False,
+                "reason": "electric_terrain",
+            }
         if target.ability is Ability.INSOMNIA:
             return {
                 "name": self.name,

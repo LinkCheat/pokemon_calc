@@ -204,5 +204,43 @@ class OpponentAITests(unittest.TestCase):
         self.assertEqual(evaluate_state(self.battle_field, simulated_field), 2)
 
 
+    def test_scores_electric_minor_statuses(self):
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.player_active_pokemon.electric_charge_active = True
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), -0.5
+        )
+
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.player_active_pokemon.electrified = True
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), 0.5
+        )
+
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.player_active_pokemon.magnet_rise_turns_remaining = 2
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), -0.5
+        )
+
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.opponent_active_pokemon.electric_charge_active = True
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), 0.5
+        )
+
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.opponent_active_pokemon.electrified = True
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), -0.5
+        )
+
+        simulated_field = copy.deepcopy(self.battle_field)
+        simulated_field.opponent_active_pokemon.magnet_rise_turns_remaining = 2
+        self.assertAlmostEqual(
+            evaluate_state(self.battle_field, simulated_field), 0.5
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

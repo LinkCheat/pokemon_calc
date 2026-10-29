@@ -90,6 +90,9 @@ class Field:
             pokemon.restore_temporary_ability()
             pokemon.calculateStats()
             pokemon.current_hp = pokemon.max_hp
+            pokemon.electric_charge_active = False
+            pokemon.electrified = False
+            pokemon.magnet_rise_turns_remaining = 0
             if pokemon.forest_cursed:
                 pokemon.type.remove(Type.GRASS)
                 pokemon.forest_cursed = False
@@ -175,6 +178,9 @@ class Field:
             outgoing_pokemon.locked_move_turns_remaining = 0
             outgoing_pokemon.confusion_turns_remaining = 0
             outgoing_pokemon.restore_burn_up_type()
+            outgoing_pokemon.electric_charge_active = False
+            outgoing_pokemon.electrified = False
+            outgoing_pokemon.magnet_rise_turns_remaining = 0
             opposing_pokemon = self._get_active_pokemon(
                 "opponent" if side == "player" else "player"
             )
@@ -409,6 +415,7 @@ class Field:
         for pokemon in self._player_team + self._opponent_team:
             pokemon.flinched = False
             pokemon.has_acted_this_turn = False
+            pokemon.electrified = False
             pokemon.protected_by_move = None
             pokemon.shell_trap_armed = False
             pokemon.shell_trap_triggered = False
@@ -421,6 +428,7 @@ class Field:
             turn_results.extend(self._apply_syrup_bomb())
             turn_results.extend(self._apply_ingrain())
             turn_results.extend(self._apply_grassy_terrain())
+            turn_results.extend(self._apply_magnet_rise())
             turn_results.extend(self._apply_weather())
         for pokemon in self._player_team + self._opponent_team:
             pokemon.stat_boosted_this_turn = False
@@ -571,47 +579,69 @@ class Field:
         return residual_results
 
     def _apply_grassy_terrain(self):
-        """Heal active grounded Pokémon, then count down Grassy Terrain."""
+        """Apply Grassy Terrain healing, then count down the active terrain."""
         if (
-            self.terrain is not Terrain.GRASSY
+            self.terrain is None
             or self.terrain_turns_remaining <= 0
         ):
             return []
 
         residual_results = []
-        for side in ("player", "opponent"):
-            pokemon = self._get_active_pokemon(side)
-            if (
-                pokemon is None
-                or pokemon.current_hp <= 0
-                or not self._is_grounded(pokemon)
-            ):
-                continue
+        if self.terrain is Terrain.GRASSY:
+            for side in ("player", "opponent"):
+                pokemon = self._get_active_pokemon(side)
+                if (
+                    pokemon is None
+                    or pokemon.current_hp <= 0
+                    or not self._is_grounded(pokemon)
+                ):
+                    continue
 
-            healing = min(
-                max(1, pokemon.max_hp // 16),
-                pokemon.max_hp - pokemon.current_hp,
-            )
-            if healing <= 0:
-                continue
+                healing = min(
+                    max(1, pokemon.max_hp // 16),
+                    pokemon.max_hp - pokemon.current_hp,
+                )
+                if healing <= 0:
+                    continue
 
-            pokemon.current_hp += healing
-            residual_results.append({
-                "action": {
-                    "type": "grassy_terrain_residual",
-                    "side": side,
-                    "pokemon": pokemon,
-                },
-                "result": {
-                    "healed": healing,
-                    "turns_remaining": self.terrain_turns_remaining - 1,
-                },
-            })
+                pokemon.current_hp += healing
+                residual_results.append({
+                    "action": {
+                        "type": "grassy_terrain_residual",
+                        "side": side,
+                        "pokemon": pokemon,
+                    },
+                    "result": {
+                        "healed": healing,
+                        "turns_remaining": self.terrain_turns_remaining - 1,
+                    },
+                })
 
         self.terrain_turns_remaining -= 1
         if self.terrain_turns_remaining <= 0:
             self.terrain_turns_remaining = 0
             self.terrain = None
+        return residual_results
+
+    def _apply_magnet_rise(self):
+        """Count down Magnet Rise for each active Pokémon."""
+        residual_results = []
+        for side in ("player", "opponent"):
+            pokemon = self._get_active_pokemon(side)
+            if pokemon is None or pokemon.magnet_rise_turns_remaining <= 0:
+                continue
+
+            pokemon.magnet_rise_turns_remaining -= 1
+            residual_results.append({
+                "action": {
+                    "type": "magnet_rise_residual",
+                    "side": side,
+                    "pokemon": pokemon,
+                },
+                "result": {
+                    "turns_remaining": pokemon.magnet_rise_turns_remaining,
+                },
+            })
         return residual_results
 
     def _apply_weather(self):
@@ -736,19 +766,26 @@ class Field:
 
     def attack_hits(self, attacker, defender, move):
         """Roll the move's accuracy against the combatants' accuracy stages."""
-        if move.accuracy >= 101:
+        accuracy = move.get_accuracy(attacker, defender, self)
+        if accuracy >= 101:
             return True
 
         accuracy_multiplier = self._stage_multiplier(attacker.stat_modifiers["accuracy"])
         evasion_multiplier = self._stage_multiplier(defender.stat_modifiers["evasion"])
-        hit_chance = move.accuracy * accuracy_multiplier / evasion_multiplier
+        hit_chance = accuracy * accuracy_multiplier / evasion_multiplier
         if hit_chance >= 100:
             return True
         return random.random() * 100 < max(0, hit_chance)
 
+    def _get_move_type(self, move, attacker, defender=None):
+        """Return the move's effective type, including Electrify."""
+        if attacker is not None and attacker.electrified:
+            return Type.ELECTRIC
+        return move.get_type(attacker, defender, self)
+
     def calculate_move_effectiveness(self, move, defender, attacker=None):
         """Multiply type effectiveness across all of the defender's types."""
-        move_type = move.get_type(attacker, defender, self)
+        move_type = self._get_move_type(move, attacker, defender)
         effectiveness = 1.0
         for defending_type in defender.type:
             if (
@@ -774,7 +811,7 @@ class Field:
 
     def calculate_stab_multiplier(self, attacker, move):
         """Return the same-type attack bonus multiplier for this attacker and move."""
-        return 1.5 if move.get_type(attacker, field=self) in attacker.type else 1.0
+        return 1.5 if self._get_move_type(move, attacker) in attacker.type else 1.0
 
     def calculate_critical_hit_multiplier(self, attacker, defender, move):
         """Roll for a critical hit and return its damage multiplier.
@@ -803,10 +840,10 @@ class Field:
         if random.random() >= critical_chance:
             return 1.0
 
-        if move.category is MoveCategory.PHYSICAL:
+        if move.category.name == "PHYSICAL":
             attack_stat_name = "attack"
             defense_stat_name = "defense"
-        elif move.category is MoveCategory.SPECIAL:
+        elif move.category.name == "SPECIAL":
             attack_stat_name = "sp_atk"
             defense_stat_name = "sp_def"
         else:
@@ -833,10 +870,18 @@ class Field:
         if (
             self.terrain is Terrain.GRASSY
             and self._is_grounded(attacker)
-            and move.get_type(attacker, defender, self) is Type.GRASS
+            and self._get_move_type(move, attacker, defender) is Type.GRASS
         ):
             modifiers *= 1.3
-        move_type = move.get_type(attacker, defender, self)
+        move_type = self._get_move_type(move, attacker, defender)
+        if (
+            self.terrain is Terrain.ELECTRIC
+            and self._is_grounded(attacker)
+            and move_type is Type.ELECTRIC
+        ):
+            modifiers *= 1.3
+        if attacker.electric_charge_active and move_type is Type.ELECTRIC:
+            modifiers *= 2
         if self.weather is Weather.SUNNY:
             if move_type is Type.FIRE:
                 modifiers *= 1.5
@@ -849,7 +894,10 @@ class Field:
         return (
             self.gravity_active
             or pokemon.ingrain_active
-            or Type.FLYING not in pokemon.type
+            or (
+                pokemon.magnet_rise_turns_remaining <= 0
+                and Type.FLYING not in pokemon.type
+            )
         )
 
     def calculate_damage(self, attacker, defender, move):
@@ -858,13 +906,13 @@ class Field:
         Status moves deal no damage. Physical and special moves use their
         corresponding attacking and defending stats.
         """
-        if move.category is MoveCategory.STATUS:
+        if move.category.name == "STATUS":
             return 0
 
-        if move.category is MoveCategory.PHYSICAL:
+        if move.category.name == "PHYSICAL":
             attack_stat = attacker.stats["attack"]
             defense_stat = defender.stats["defense"]
-        elif move.category is MoveCategory.SPECIAL:
+        elif move.category.name == "SPECIAL":
             attack_stat = attacker.stats["sp_atk"]
             defense_stat = defender.stats["sp_def"]
         else:
@@ -882,11 +930,24 @@ class Field:
     def resolve_move(self, side, move):
         """Resolve a move and remember whether it failed for the user's next move."""
         attacker = self._get_active_pokemon(side)
+        opponent_side = "opponent" if side == "player" else "player"
+        defender = self._get_active_pokemon(opponent_side)
+        move_type = self._get_move_type(move, attacker, defender)
         stat_modifiers_before = {
             pokemon: pokemon.stat_modifiers.copy()
             for pokemon in self._player_team + self._opponent_team
         }
         result = self._resolve_move(side, move)
+        if attacker is not None:
+            attacker.electrified = False
+            if (
+                move_type is Type.ELECTRIC
+                and attacker.electric_charge_active
+                and not result.get("unable_to_act")
+                and not result.get("charging")
+                and type(move).__name__ != "Charge"
+            ):
+                attacker.electric_charge_active = False
         self.last_move_used = None if result.get("unable_to_act") else move.name
         for pokemon, previous_modifiers in stat_modifiers_before.items():
             if any(
@@ -924,6 +985,8 @@ class Field:
         defender = self._get_active_pokemon(opponent_side)
         if attacker is None or defender is None:
             raise ValueError("Chaque camp doit avoir un Pokémon actif pour résoudre une attaque.")
+        attacker._battle_field = self
+        defender._battle_field = self
         is_protection_move = move.is_protection_move()
         if not is_protection_move:
             attacker.protection_streak = 0
@@ -1129,6 +1192,7 @@ class Field:
 
         if (
             not move.targets_user_team()
+            and not move.targets_user()
             and not move.applies_field_effect()
             and self.is_immune_to_move(move, defender, attacker)
         ):
@@ -1157,7 +1221,7 @@ class Field:
 
         if (
             hits > 0
-            and move.category is MoveCategory.PHYSICAL
+            and move.category.name == "PHYSICAL"
             and defender.shell_trap_armed
         ):
             defender.shell_trap_triggered = True
@@ -1208,3 +1272,4 @@ class Field:
         if defending_type is Type.NONE:
             return 1.0
         return TypeChart[attack_type.name].value.get(defending_type, 1.0)
+
