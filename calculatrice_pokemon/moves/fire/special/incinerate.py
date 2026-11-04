@@ -1,8 +1,10 @@
 try:
+    from enums.item import Item
     from enums.move_category import MoveCategory
     from enums.type import Type
     from moves.move import Moves
 except ModuleNotFoundError:
+    from calculatrice_pokemon.enums.item import Item
     from calculatrice_pokemon.enums.move_category import MoveCategory
     from calculatrice_pokemon.enums.type import Type
     from calculatrice_pokemon.moves.move import Moves
@@ -27,10 +29,16 @@ class Incinerate(Moves):
         normalized_name = item_name.replace("_", " ").replace("-", " ").lower()
         item_destroyed = (
             held_item is not None
-            and ("berry" in normalized_name or "gem" in normalized_name)
+            and held_item is not Item.NONE
+            and not getattr(held_item, "is_mega_stone", False)
+            and (
+                getattr(held_item, "is_berry", False)
+                or "berry" in normalized_name
+                or "gem" in normalized_name
+            )
         )
         if item_destroyed:
-            target.item = None
+            target.item = Item.NONE
 
         return {
             "name": self.name,

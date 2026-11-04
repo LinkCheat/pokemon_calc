@@ -2,6 +2,7 @@ import math
 import random
 
 from enums.ability import Ability
+from enums.item import Item
 from enums.weather import Weather
 from enums.terrain import Terrain
 from enums.move_category import MoveCategory
@@ -14,6 +15,7 @@ class Field:
     MAX_TEAM_SIZE = 6
     SWITCH_INDEX_OFFSET = 5
     SWITCH_PRIORITY = 6
+    MEGA_ACTION_OFFSET = SWITCH_INDEX_OFFSET + MAX_TEAM_SIZE
 
     def __init__(self):
         """Create an empty battle field with no active Pokémon or conditions."""
@@ -21,6 +23,8 @@ class Field:
         self._opponent_team = []
         self._player_active_index = None
         self._opponent_active_index = None
+        self.player_mega_evolved = False
+        self.opponent_mega_evolved = False
         self.player_action_index = None
         self.opponent_action_index = None
         self.turn_number = 0
@@ -85,7 +89,10 @@ class Field:
     def initialize_battle(self):
         """Recalculate every team member's stats and restore each one's HP."""
         self.last_move_used = None
+        self.player_mega_evolved = False
+        self.opponent_mega_evolved = False
         for pokemon in self._player_team + self._opponent_team:
+            pokemon.restore_mega_evolution()
             pokemon.restore_burn_up_type()
             pokemon.restore_temporary_ability()
             pokemon.calculateStats()
@@ -121,6 +128,32 @@ class Field:
 
         self._activate_entry_ability("player")
         self._activate_entry_ability("opponent")
+
+    def can_mega_evolve(self, side):
+        """Return whether the active Charizard can Mega Evolve this battle."""
+        if side not in ("player", "opponent"):
+            raise ValueError("side doit être 'player' ou 'opponent'.")
+        if getattr(self, f"{side}_mega_evolved"):
+            return False
+
+        active_pokemon = self._get_active_pokemon(side)
+        return (
+            active_pokemon is not None
+            and active_pokemon.current_hp > 0
+            and active_pokemon.item.is_mega_stone
+            and active_pokemon.name == active_pokemon.item.mega_evolution[0]
+            and not active_pokemon.form
+            and not active_pokemon.mega_evolved
+        )
+
+    def mega_evolve(self, side):
+        """Mega Evolve the active Pokémon and mark the team's battle use."""
+        if not self.can_mega_evolve(side):
+            raise ValueError("L'équipe ne peut pas méga-évoluer ce Pokémon.")
+        active_pokemon = self._get_active_pokemon(side)
+        active_pokemon.mega_evolve()
+        setattr(self, f"{side}_mega_evolved", True)
+        return active_pokemon
 
     def switch_pokemon(self, side, team_index):
         """Make a team member active and return it.
@@ -262,14 +295,35 @@ class Field:
         if active_pokemon is None:
             raise ValueError(f"L'équipe {side} ne contient aucun Pokémon.")
 
-        if isinstance(action_index, int) and 0 <= action_index < 4:
-            if active_pokemon.locked_move is None and action_index >= len(active_pokemon.moves):
+        mega_evolution = (
+            isinstance(action_index, int)
+            and self.MEGA_ACTION_OFFSET
+            <= action_index
+            < self.MEGA_ACTION_OFFSET + active_pokemon.MAX_MOVES
+        )
+        if mega_evolution and not self.can_mega_evolve(side):
+            raise ValueError("L'équipe ne peut pas méga-évoluer ce Pokémon.")
+
+        is_move_action = (
+            isinstance(action_index, int)
+            and (
+                0 <= action_index < active_pokemon.MAX_MOVES
+                or mega_evolution
+            )
+        )
+        if is_move_action:
+            move_index = (
+                action_index - self.MEGA_ACTION_OFFSET
+                if mega_evolution
+                else action_index
+            )
+            if active_pokemon.locked_move is None and move_index >= len(active_pokemon.moves):
                 raise ValueError(f"Aucune attaque à l'index {action_index} pour le Pokémon actif.")
             selected_move = (
                 active_pokemon.locked_move
                 or active_pokemon.charging_move
                 or active_pokemon.recharging_move
-                or active_pokemon.moves[action_index]
+                or active_pokemon.moves[move_index]
             )
             if (
                 active_pokemon.charging_move is None
@@ -286,9 +340,15 @@ class Field:
                 "pokemon": active_pokemon,
                 "move": selected_move,
                 "priority": selected_move.get_priority(active_pokemon, target, self),
+                "mega_evolve": mega_evolution,
             }
 
-        if isinstance(action_index, int) and action_index > 4:
+        if (
+            isinstance(action_index, int)
+            and self.SWITCH_INDEX_OFFSET
+            <= action_index
+            < self.MEGA_ACTION_OFFSET
+        ):
             team_index = action_index - self.SWITCH_INDEX_OFFSET
             if (
                 active_pokemon.current_hp > 0
@@ -326,7 +386,10 @@ class Field:
                 "priority": self.SWITCH_PRIORITY,
             }
 
-        raise ValueError("L'index d'action doit être entre 0 et 3 pour une attaque, ou entre 5 et 10 pour un switch.")
+        raise ValueError(
+            "Index d'action invalide : attaque 0-3, switch 5-10, "
+            "ou méga-évolution et attaque 11-14."
+        )
 
     def determine_attack_order(self, player_action_index, opponent_action_index):
         """Validate both choices and order actions by priority, speed, then a tie-break.
@@ -341,6 +404,9 @@ class Field:
             "player": self._resolve_action("player", player_action_index),
             "opponent": self._resolve_action("opponent", opponent_action_index),
         }
+        for action in actions.values():
+            if action.get("mega_evolve"):
+                self.mega_evolve(action["side"])
         player_pokemon = self.player_active_pokemon
         opponent_pokemon = self.opponent_active_pokemon
         player_pokemon.calculateStats()
@@ -452,17 +518,21 @@ class Field:
                 trapped_pokemon.current_hp,
             )
             trapped_pokemon.current_hp -= damage
+            item_healing = self._apply_sitrus_berry(trapped_pokemon)
             trapped_pokemon.fire_spin_turns_remaining -= 1
+            result = {
+                "damage": damage,
+                "turns_remaining": trapped_pokemon.fire_spin_turns_remaining,
+            }
+            if item_healing is not None:
+                result["item_healing"] = [item_healing]
             residual_results.append({
                 "action": {
                     "type": "fire_spin_residual",
                     "side": side,
                     "pokemon": trapped_pokemon,
                 },
-                "result": {
-                    "damage": damage,
-                    "turns_remaining": trapped_pokemon.fire_spin_turns_remaining,
-                },
+                "result": result,
             })
         return residual_results
 
@@ -494,21 +564,25 @@ class Field:
                 trapped_pokemon.current_hp,
             )
             trapped_pokemon.current_hp -= damage
+            item_healing = self._apply_sitrus_berry(trapped_pokemon)
             trapped_pokemon.magma_storm_turns_remaining -= 1
             turns_remaining = trapped_pokemon.magma_storm_turns_remaining
             if turns_remaining == 0:
                 trapped_pokemon.magma_storm_trapped_by = None
 
+            result = {
+                "damage": damage,
+                "turns_remaining": turns_remaining,
+            }
+            if item_healing is not None:
+                result["item_healing"] = [item_healing]
             residual_results.append({
                 "action": {
                     "type": "magma_storm_residual",
                     "side": side,
                     "pokemon": trapped_pokemon,
                 },
-                "result": {
-                    "damage": damage,
-                    "turns_remaining": turns_remaining,
-                },
+                "result": result,
             })
         return residual_results
 
@@ -706,21 +780,25 @@ class Field:
                 trapped_pokemon.current_hp,
             )
             trapped_pokemon.current_hp -= damage
+            item_healing = self._apply_sitrus_berry(trapped_pokemon)
             trapped_pokemon.snap_trap_turns_remaining -= 1
             turns_remaining = trapped_pokemon.snap_trap_turns_remaining
             if turns_remaining == 0:
                 trapped_pokemon.snap_trap_turns_remaining = 0
 
+            result = {
+                "damage": damage,
+                "turns_remaining": turns_remaining,
+            }
+            if item_healing is not None:
+                result["item_healing"] = [item_healing]
             residual_results.append({
                 "action": {
                     "type": "snap_trap_residual",
                     "side": side,
                     "pokemon": trapped_pokemon,
                 },
-                "result": {
-                    "damage": damage,
-                    "turns_remaining": turns_remaining,
-                },
+                "result": result,
             })
         return residual_results
 
@@ -735,6 +813,7 @@ class Field:
             drain_amount = max(1, target.max_hp // 8)
             drained = min(drain_amount, target.current_hp)
             target.current_hp -= drained
+            item_healing = self._apply_sitrus_berry(target)
 
             recipient_side = "opponent" if target_side == "player" else "player"
             recipient = self._get_active_pokemon(recipient_side)
@@ -743,19 +822,44 @@ class Field:
                 healed = min(drained, recipient.max_hp - recipient.current_hp)
                 recipient.current_hp += healed
 
+            result = {
+                "drained": drained,
+                "healed": healed,
+                "recipient_name": recipient.name if recipient is not None else None,
+            }
+            if item_healing is not None:
+                result["item_healing"] = [item_healing]
             residual_results.append({
                 "action": {
                     "type": "leech_seed_residual",
                     "side": target_side,
                     "pokemon": target,
                 },
-                "result": {
-                    "drained": drained,
-                    "healed": healed,
-                    "recipient_name": recipient.name if recipient is not None else None,
-                },
+                "result": result,
             })
         return residual_results
+
+    @staticmethod
+    def _apply_sitrus_berry(pokemon):
+        """Consume a Sitrus Berry and restore one quarter of max HP below half."""
+        if (
+            pokemon.item is not Item.SITRUS_BERRY
+            or pokemon.current_hp <= 0
+            or pokemon.current_hp * 2 >= pokemon.max_hp
+        ):
+            return None
+
+        healing = min(
+            max(1, pokemon.max_hp // 4),
+            pokemon.max_hp - pokemon.current_hp,
+        )
+        pokemon.item = Item.NONE
+        pokemon.current_hp += healing
+        return {
+            "pokemon": pokemon,
+            "item": Item.SITRUS_BERRY,
+            "healed": healing,
+        }
 
     @staticmethod
     def _stage_multiplier(stage):
@@ -887,6 +991,11 @@ class Field:
                 modifiers *= 1.5
             elif move_type is Type.WATER:
                 modifiers *= 0.5
+        if (
+            attacker.item is Item.LIFE_ORB
+            and move.uses_damage_formula()
+        ):
+            modifiers *= 1.3
         return modifiers
 
     def _is_grounded(self, pokemon):
@@ -932,12 +1041,36 @@ class Field:
         attacker = self._get_active_pokemon(side)
         opponent_side = "opponent" if side == "player" else "player"
         defender = self._get_active_pokemon(opponent_side)
+        hp_before_move = {
+            pokemon: pokemon.current_hp
+            for pokemon in self._player_team + self._opponent_team
+        }
         move_type = self._get_move_type(move, attacker, defender)
         stat_modifiers_before = {
             pokemon: pokemon.stat_modifiers.copy()
             for pokemon in self._player_team + self._opponent_team
         }
         result = self._resolve_move(side, move)
+        if (
+            attacker is not None
+            and attacker.item is Item.LIFE_ORB
+            and move.is_damaging_move()
+            and result.get("hits", 0) > 0
+        ):
+            item_recoil = min(
+                max(1, attacker.max_hp // 10),
+                attacker.current_hp,
+            )
+            attacker.current_hp -= item_recoil
+            result["item_recoil"] = item_recoil
+        item_healings = []
+        for pokemon, previous_hp in hp_before_move.items():
+            if pokemon.current_hp < previous_hp:
+                item_healing = self._apply_sitrus_berry(pokemon)
+                if item_healing is not None:
+                    item_healings.append(item_healing)
+        if item_healings:
+            result["item_healing"] = item_healings
         if attacker is not None:
             attacker.electrified = False
             if (
@@ -1272,4 +1405,3 @@ class Field:
         if defending_type is Type.NONE:
             return 1.0
         return TypeChart[attack_type.name].value.get(defending_type, 1.0)
-

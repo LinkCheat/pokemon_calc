@@ -3,6 +3,7 @@ try:
     from enums.nature import Nature
     from enums.status_condition import STATUS_CONDITION
     from enums.type import Type
+    from enums.item import Item
     from moves import *
     import field
     import pokemon
@@ -13,6 +14,7 @@ except ModuleNotFoundError:
     from calculatrice_pokemon.enums.nature import Nature
     from calculatrice_pokemon.enums.status_condition import STATUS_CONDITION
     from calculatrice_pokemon.enums.type import Type
+    from calculatrice_pokemon.enums.item import Item
     from calculatrice_pokemon.moves import *
     import calculatrice_pokemon.field as field
     import calculatrice_pokemon.pokemon as pokemon
@@ -29,6 +31,7 @@ def input_player_action(battle_field, forced_switch=False):
     """
     active_pokemon = battle_field.player_active_pokemon
     valid_indexes = set()
+    valid_move_indexes = set()
 
     print(f"Actions disponibles pour {active_pokemon.name} :")
     if not forced_switch:
@@ -40,6 +43,7 @@ def input_player_action(battle_field, forced_switch=False):
         if forced_move is not None:
             move_index = active_pokemon.moves.index(forced_move)
             valid_indexes.add(move_index)
+            valid_move_indexes.add(move_index)
             if active_pokemon.locked_move is not None:
                 print(
                     f"{move_index}: Attaque {forced_move.name} "
@@ -56,6 +60,7 @@ def input_player_action(battle_field, forced_switch=False):
 
                 if selected_move.pp > 0:
                     valid_indexes.add(move_index)
+                    valid_move_indexes.add(move_index)
                     availability = ""
                 else:
                     availability = " - inutilisable (0 PP)"
@@ -63,6 +68,13 @@ def input_player_action(battle_field, forced_switch=False):
                     f"{move_index}: Attaque {selected_move.name} "
                     f"({selected_move.pp}/{selected_move.max_pp} PP){availability}"
                 )
+
+        if battle_field.can_mega_evolve("player") and valid_move_indexes:
+            valid_indexes.add(battle_field.MEGA_ACTION_OFFSET)
+            print(
+                f"{battle_field.MEGA_ACTION_OFFSET}: Méga-évolution "
+                "(choisir ensuite une attaque)"
+            )
 
     for team_index in range(battle_field.MAX_TEAM_SIZE):
         action_index = battle_field.SWITCH_INDEX_OFFSET + team_index
@@ -106,6 +118,30 @@ def input_player_action(battle_field, forced_switch=False):
             continue
 
         if action_index in valid_indexes:
+            if action_index == battle_field.MEGA_ACTION_OFFSET:
+                print("Choisissez l'attaque à utiliser après la Méga-Évolution :")
+                for move_index in sorted(valid_move_indexes):
+                    selected_move = active_pokemon.moves[move_index]
+                    print(
+                        f"{move_index}: Attaque {selected_move.name} "
+                        f"({selected_move.pp}/{selected_move.max_pp} PP)"
+                    )
+
+                while True:
+                    move_input = input(
+                        "Choisissez l'index de l'attaque (q pour revenir) : "
+                    ).strip().lower()
+                    if move_input == "q":
+                        break
+                    try:
+                        move_index = int(move_input)
+                    except ValueError:
+                        print("Veuillez saisir un nombre entier.")
+                        continue
+                    if move_index in valid_move_indexes:
+                        return battle_field.MEGA_ACTION_OFFSET + move_index
+                    print("Cet index ne correspond pas à une attaque disponible.")
+                continue
             return action_index
         print("Cet index ne correspond pas à une action disponible.")
 
@@ -115,6 +151,20 @@ def _display_action_result(battle_field, action, result):
     if result is None:
         print(f"{action['side']} switch vers {action['pokemon'].name}")
         return
+
+    if action.get("mega_evolve"):
+        print(
+            f"{action['pokemon'].name} méga-évolue en "
+            f"{action['pokemon'].form} !"
+        )
+
+    for item_healing in result.get("item_healing", []):
+        pokemon = item_healing["pokemon"]
+        print(
+            f"{pokemon.name} consomme sa Baie Sitrus et récupère "
+            f"{item_healing['healed']} PV. "
+            f"PV restants : {pokemon.current_hp}"
+        )
 
     if action["type"] == "leech_seed_residual":
         print(
@@ -344,6 +394,14 @@ def _display_action_result(battle_field, action, result):
                 )
                 if action["pokemon"].current_hp == 0:
                     print(f"{action['pokemon'].name} est K.O.")
+            if result.get("item_recoil"):
+                print(
+                    f"{action['pokemon'].name} perd "
+                    f"{result['item_recoil']} PV à cause de l'Orbe Vie. "
+                    f"PV restants : {action['pokemon'].current_hp}"
+                )
+                if action["pokemon"].current_hp == 0:
+                    print(f"{action['pokemon'].name} est K.O.")
             if effect and effect.get("flinched"):
                 print(f"{target_pokemon.name} est apeuré.")
             elif effect and effect.get("reason") == "target_already_acted":
@@ -421,7 +479,8 @@ def main():
     """Run the interactive battle one complete two-sided turn at a time."""
     ai_decision_log.clear_log()
     battle_field = field.Field()
-    player_pokemon = pokemon.Pokemon("Charizard", "Mega Charizard X")
+    player_pokemon = pokemon.Pokemon("Charizard")
+    player_pokemon.item = Item.CHARIZARDITE_X
     player_bench_pokemon = pokemon.Pokemon("Pikachu")
     player_seed_pokemon = pokemon.Pokemon("Bulbasaur")
     player_grassy_pokemon = pokemon.Pokemon("Bulbasaur")
