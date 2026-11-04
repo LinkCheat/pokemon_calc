@@ -111,6 +111,14 @@ def _available_action_indexes(battle_field, side):
                 if selected_move.pp > 0:
                     action_indexes.append(move_index)
 
+    if battle_field.can_mega_evolve(side):
+        move_indexes = tuple(action_indexes)
+        action_indexes.extend(
+            battle_field.MEGA_ACTION_OFFSET + move_index
+            for move_index in move_indexes
+            if move_index < active_pokemon.MAX_MOVES
+        )
+
     can_switch = active_pokemon.current_hp <= 0 or (
         active_pokemon.locked_move is None
         and not (

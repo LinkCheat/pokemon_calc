@@ -23,6 +23,17 @@ def _describe_action(battle_field, side, action_index):
         else battle_field.opponent_active_pokemon
     )
 
+    if (
+        battle_field.MEGA_ACTION_OFFSET
+        <= action_index
+        < battle_field.MEGA_ACTION_OFFSET + 4
+    ):
+        move_index = action_index - battle_field.MEGA_ACTION_OFFSET
+        return (
+            f"Méga-évolution + attaque "
+            f"{active_pokemon.moves[move_index].name}"
+        )
+
     if 0 <= action_index < 4:
         selected_move = (
             active_pokemon.locked_move

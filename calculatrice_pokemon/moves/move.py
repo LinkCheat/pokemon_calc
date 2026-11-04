@@ -184,6 +184,14 @@ class Moves(ABC):
         """Return the calculated damage unchanged unless a subclass overrides it."""
         return standard_damage
 
+    def is_damaging_move(self):
+        """Return whether this move can deal damage to its target."""
+        return self.category in (MoveCategory.PHYSICAL, MoveCategory.SPECIAL)
+
+    def uses_damage_formula(self):
+        """Return whether this move's damage is derived from the standard formula."""
+        return self.is_damaging_move()
+
     def inflict_sleep(self, target, field=None):
         """Put an unstatused target to sleep for one to three turns."""
         if field is None:

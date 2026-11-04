@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 
 from enums.ability import Ability
+from enums.item import Item
 from enums.type import Type
 from enums.nature import Nature
 from enums.status_condition import STATUS_CONDITION
@@ -21,6 +22,7 @@ class Pokemon:
 
         self.name = data["name"]
         self.form = data["form"]
+        self.mega_evolved = False
         self.type = data["type"]
         self.burn_up_original_types = None
         self.forest_cursed = False
@@ -42,7 +44,7 @@ class Pokemon:
         self.nature = Nature.HARDY
         self.ability = Ability.NONE
         self._ability_before_temporary_override = None
-        self.item = None
+        self.item = Item.NONE
         self.moves = []
 
         self.ivs = {
@@ -145,6 +147,40 @@ class Pokemon:
             return False
         self.type = list(self.burn_up_original_types)
         self.burn_up_original_types = None
+        return True
+
+    def mega_evolve(self):
+        """Transform this Pokémon into its held Mega Stone's form."""
+        if (
+            not self.item.is_mega_stone
+            or self.name != self.item.mega_evolution[0]
+            or self.form
+            or self.mega_evolved
+        ):
+            raise ValueError("Ce Pokémon ne peut pas méga-évoluer avec cet objet.")
+
+        data = self.find_by_name(*self.item.mega_evolution)
+        self.form = data["form"]
+        self.type = data["type"]
+        self.base_stats = data["stats"]
+        self.weight = data["weight"]
+        self.calculateStats()
+        self.mega_evolved = True
+        return True
+
+    def restore_mega_evolution(self):
+        """Restore a Mega-Evolved Pokémon's base form for a new battle."""
+        if not self.mega_evolved:
+            return False
+
+        data = self.find_by_name(self.name)
+        self.form = data["form"]
+        self.type = data["type"]
+        self.base_stats = data["stats"]
+        self.weight = data["weight"]
+        self.calculateStats()
+        self.current_hp = min(self.current_hp, self.max_hp)
+        self.mega_evolved = False
         return True
 
 
